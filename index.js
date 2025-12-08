@@ -1,7 +1,7 @@
 const { program } = require('commander');
 const fetch = require('node-fetch');
 const exportAppSearchEngine = require('./export-app-search-engine');
-const importAppSearchEngine = require('./import-app-seach-engine');
+const importAppSearchEngine = require('./import-app-search-engine');
 
 async function main() {
 
@@ -26,6 +26,7 @@ async function main() {
     .requiredOption('--app-search-endpoint <value>', 'Must specify an App Search server endpoint, e.g. http://localhost:3002')
     .requiredOption('--app-search-private-key <value>', 'Must specify an App Search private key')
     .requiredOption('--input-json <value>', 'File containing exported engine settings JSON')
+    .option('--force', 'Delete existing engine if it exists before importing')
     .action((engineName, options, command) => {
       importAppSearchEngine(engineName, options)
     });

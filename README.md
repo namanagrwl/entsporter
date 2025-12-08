@@ -13,6 +13,7 @@ Import and export Elastic App Search engine configuration, including:
 * Boosts
 * Result settings
 * Precision tuning setting
+* Crwaler [REST Call]
 
 Only tested with 8.6 App Search managed engines so far. It _probably_ works with versions as far back as 7.17.
 
@@ -42,6 +43,7 @@ npm run index.js import-app-search-engine new-parks -- \
   --app-search-endpoint "https://my-cloud-deployment.ent.us-central1.gcp.cloud.es.io" \
   --app-search-private-key "private-REDACTED" \
   --input-json "engine.json"
+  --force
 ```
 
 The script only allows importing the settings into a new engine that the script will create.
