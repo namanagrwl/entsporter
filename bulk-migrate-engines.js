@@ -1,4 +1,5 @@
-
+// bulk-migrate-engines.js
+//
 // Lists all App Search engines from a source cluster,
 // exports each to JSON, and imports them into a target cluster
 // using the existing exporter/importer in this repo.
@@ -40,7 +41,8 @@ async function main() {
     .requiredOption('--to-key <value>', 'Target App Search private key')
     .option('--output-dir <value>', 'Directory to store engine JSON files', './engines-export')
     .option('--target-prefix <value>', 'Prefix for target engine names', 'import-')
-    .option('--dry-run', 'Only list engines, do not export/import', false);
+    .option('--dry-run', 'Only list engines, do not export/import', false)
+    .option('--force', 'Delete target engine if it already exists');
 
   program.argument('[engine-filter]', 'Optional substring filter for engine names', '');
 
@@ -123,7 +125,8 @@ async function main() {
         await importAppSearchEngine(dstName, {
           appSearchEndpoint: toEndpoint,
           appSearchPrivateKey: toKey,
-          inputJson: jsonPath
+          inputJson: jsonPath,
+          force: options.force
         });
 
         console.log(`Completed migration for engine "${srcName}" -> "${dstName}"`);
