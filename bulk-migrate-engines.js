@@ -40,7 +40,7 @@ async function main() {
     .requiredOption('--to-endpoint <value>', 'Target App Search endpoint')
     .requiredOption('--to-key <value>', 'Target App Search private key')
     .option('--output-dir <value>', 'Directory to store engine JSON files', './engines-export')
-    .option('--target-prefix <value>', 'Prefix for target engine names', 'import-')
+    .option('--target-prefix <value>', 'Prefix for target engine names', '')
     .option('--dry-run', 'Only list engines, do not export/import', false)
     .option('--force', 'Delete target engine if it already exists');
 
