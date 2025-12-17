@@ -56,7 +56,7 @@ async function deleteEngine(client, engineName, quiet = false) {
   
   // Step 3: Wait additional time for backend to release the name
   log('  Waiting additional 15 seconds for name to be released...', quiet);
-  await sleep(15000);
+  await sleep(30000);
   
   log('  Deletion complete', quiet);
 }
@@ -115,10 +115,10 @@ async function createEngine(client, engineName, engineJson, options) {
         if (errorStr.includes('already taken') || errorStr.includes('already exists')) {
           if (attempt < maxRetries) {
             log(`  Name still taken, waiting 20s... (attempt ${attempt}/${maxRetries})`, quiet);
-            await sleep(20000);
+            await sleep(30000);
             continue;
           }
-          throw new Error(`Name "${engineName}" still taken after ${maxRetries} attempts`);
+          throw new Error(`Engine "${engineName}" - Name still taken after ${maxRetries} attempts and ${maxRetries * 30}s wait`);
         }
         
         throw new Error(`Creation failed: ${errorStr}`);
