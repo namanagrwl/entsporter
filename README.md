@@ -44,6 +44,26 @@ You can now:
 - Run in **dry-run mode**
 - Overwrite existing engines using `--force`
 
+### Bulk Migration Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--from-endpoint` | Source cluster URL | Required |
+| `--from-key` | Source private API key | Required |
+| `--to-endpoint` | Target cluster URL | Required |
+| `--to-key` | Target private API key | Required |
+| `--concurrency <n>` | Number of engines to process in parallel | 5 |
+| `--output-dir <path>` | Directory for temporary JSON files | `./engines-export` |
+| `--target-prefix <prefix>` | Prefix to add to target engine names | (none) |
+| `--state-file <path>` | State file for resume capability | `./migration-state.json` |
+| `--force` | Overwrite existing engines on target | false |
+| `--resume` | Resume from previous run | false |
+| `--retry-failed-only` | Only retry previously failed engines | false |
+| `--skip-existing` | Skip engines that already exist on target | false |
+| `--cleanup` | Delete JSON files after successful import | false |
+| `--dry-run` | List engines without migrating | false |
+| `[filter]` | Substring filter for engine names | (none) |
+
 This enables full environment-to-environment migrations such as:
 
 - DEV → QA  
@@ -98,26 +118,72 @@ npm run index.js import-app-search-engine new-parks -- \
 
 ### Bulk Migration
 
-Dry-Run: List All Engines Only
-```sh
-node bulk-migrate-engines.js \
-  --from-endpoint "https://SOURCE.ent.cloud.es.io" \
-  --from-key "private-SOURCE" \
-  --to-endpoint "https://TARGET.ent.cloud.es.io" \
-  --to-key "private-TARGET" \
-  --dry-run
-  ```
+Migrate multiple engines between clusters in parallel:
 
-Migrate Only Matching Engines (dev- prefix)
-```sh
-node bulk-migrate-engines.js dev- \
-  --from-endpoint "https://SOURCE.ent.cloud.es.io" \
-  --from-key "private-SOURCE" \
-  --to-endpoint "https://TARGET.ent.cloud.es.io" \
-  --to-key "private-TARGET" \
-  --output-dir "./engines-export" \
-  --target-prefix "import-" \
-  --force
+#### Dry Run (Always Do This First!)
+```bash
+node bulk-migrate-engines.js \
+  --from-endpoint "https://source.elastic-cloud.com" \
+  --from-key "source-private-key" \
+  --to-endpoint "https://target.elastic-cloud.com" \
+  --to-key "target-private-key" \
+  --dry-run
+```
+
+#### Full Migration
+```bash
+node bulk-migrate-engines.js \
+  --from-endpoint "https://source.elastic-cloud.com" \
+  --from-key "source-private-key" \
+  --to-endpoint "https://target.elastic-cloud.com" \
+  --to-key "target-private-key" \
+  --concurrency 5 \
+  --force \
+  --cleanup
+```
+
+
+#### Resume After Interruption
+```bash
+node bulk-migrate-engines.js \
+  --from-endpoint "https://source.elastic-cloud.com" \
+  --from-key "source-private-key" \
+  --to-endpoint "https://target.elastic-cloud.com" \
+  --to-key "target-private-key" \
+  --concurrency 5 \
+  --force \
+  --resume
+```
+
+#### Retry Only Failed Engines
+```bash
+node bulk-migrate-engines.js \
+  --from-endpoint "https://source.elastic-cloud.com" \
+  --from-key "source-private-key" \
+  --to-endpoint "https://target.elastic-cloud.com" \
+  --to-key "target-private-key" \
+  --concurrency 2 \
+  --force \
+  --resume \
+  --retry-failed-only
+```
+---
+
+## State File Format
+
+The migration state is saved to `migration-state.json`:
+```json
+{
+  "completed": ["engine-1", "engine-2", "engine-3"],
+  "failed": [
+    {
+      "engine": "engine-4",
+      "error": "Connection timeout"
+    }
+  ],
+  "skipped": [],
+  "startTime": 1702857600000
+}
 ```
 
 ---
@@ -175,5 +241,27 @@ node bulk-migrate-engines.js dev- \
     "sitemaps": []
   }
 }
+```
+
+---
+
+## Architecture
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Bulk Migration Script                     │
+│  - Parallel processing (configurable concurrency)            │
+│  - State management and resume capability                    │
+│  - Progress tracking and statistics                          │
+└───────────────────────┬─────────────────────────────────────┘
+                        │
+        ┌───────────────┴───────────────┐
+        │                               │
+        ▼                               ▼
+┌───────────────┐               ┌───────────────┐
+│ Export Script │               │ Import Script │
+│ - Quiet mode  │               │ - Quiet mode  │
+│ - Pagination  │               │ - Retry logic │
+│ - REST API    │               │ - Force flag  │
+└───────────────┘               └───────────────┘
 ```
 
