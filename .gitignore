@@ -5,3 +5,5 @@ old-*
 remaining-schema-batches.json
 commands.txt
 engines*
+output2*
+migration-state*

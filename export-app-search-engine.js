@@ -1,10 +1,18 @@
 const { Client } = require('@elastic/enterprise-search');
 const fs = require('fs/promises');
 
-// CHANGED: Added SDK pagination helper and REST crawler export (uses global fetch)
+// Logging helper - respects quiet mode
+function log(message, quiet = false) {
+  if (!quiet) {
+    console.log(message);
+  }
+}
 
 async function exportAppSearchEngine(engineName, options) {
-  console.log(`Exporting App Search engine ${engineName}, host: ${options.appSearchEndpoint}`);
+  const quiet = options.quiet || false;
+  
+  log(`Exporting App Search engine ${engineName}, host: ${options.appSearchEndpoint}`, quiet);
+  
   const client = new Client({
     url: options.appSearchEndpoint,
     auth: { token: options.appSearchPrivateKey }
@@ -12,50 +20,56 @@ async function exportAppSearchEngine(engineName, options) {
 
   const engine = await client.app.getEngine({ engine_name: engineName });
   if (engine.errors) {
-    console.error(engine.errors);
-    process.exit(1);
+    console.error('Export failed:', engine.errors);
+    throw new Error(`Failed to get engine: ${JSON.stringify(engine.errors)}`);
   }
 
   const engineJson = {
     read_only: { name: engine.name, type: engine.type, language: engine.language }
   };
 
-  // CHANGED: run exports in sequence (preserve ordering)
-  engineJson.schema = await exportSchema(client, engineName);
-  engineJson.synonyms = await exportSynonyms(client, engineName);
-  engineJson.curations = await exportCurations(client, engineName);
-  engineJson.searchSettings = await exportSearchSettings(client, engineName); // includes result_fields
-  engineJson.crawler = await exportCrawlerConfigViaRest(engineName, options); // REST fallback (may be {})
+  // Run exports in sequence
+  engineJson.schema = await exportSchema(client, engineName, quiet);
+  engineJson.synonyms = await exportSynonyms(client, engineName, quiet);
+  engineJson.curations = await exportCurations(client, engineName, quiet);
+  engineJson.searchSettings = await exportSearchSettings(client, engineName, quiet);
+  engineJson.crawler = await exportCrawlerConfigViaRest(engineName, options, quiet);
 
-  console.log(`Writing engine JSON to file ${options.outputJson}`);
+  log(`Writing to ${options.outputJson}`, quiet);
   await fs.writeFile(options.outputJson, JSON.stringify(engineJson, undefined, 2));
-
-  console.dir(engineJson);
+  
+  log(`Export complete`, quiet);
 }
 
 /* -----------------------
-   SDK helpers (pagination for list endpoints)
+   SDK helpers
    ----------------------- */
 
-async function exportSchema(client, engineName) {
+async function exportSchema(client, engineName, quiet = false) {
   const schema = await client.app.getSchema({ engine_name: engineName });
   if (schema.errors) {
-    console.error(schema.errors);
-    process.exit(1);
+    console.error('Schema export failed:', schema.errors);
+    throw new Error(`Schema export failed: ${JSON.stringify(schema.errors)}`);
   }
+  
+  const fieldCount = Object.keys(schema).length;
+  log(`  Schema: ${fieldCount} fields`, quiet);
+  
   return schema;
 }
 
-async function exportSearchSettings(client, engineName) {
+async function exportSearchSettings(client, engineName, quiet = false) {
   const searchSettings = await client.app.getSearchSettings({ engine_name: engineName });
   if (searchSettings.errors) {
-    console.error(searchSettings.errors);
-    process.exit(1);
+    console.error('Search settings export failed:', searchSettings.errors);
+    throw new Error(`Search settings export failed: ${JSON.stringify(searchSettings.errors)}`);
   }
+  
+  log(`  Search settings: exported`, quiet);
   return searchSettings;
 }
 
-// CHANGED: generic SDK pagination helper for client.app.* list endpoints
+// Generic SDK pagination helper
 async function fetchAllPagesSDK(fetchFn, initialParams = {}) {
   const allResults = [];
   let page = 1;
@@ -66,8 +80,8 @@ async function fetchAllPagesSDK(fetchFn, initialParams = {}) {
 
     if (!resp) break;
     if (resp.errors) {
-      console.error(resp.errors);
-      process.exit(1);
+      console.error('Pagination error:', resp.errors);
+      throw new Error(`Pagination failed: ${JSON.stringify(resp.errors)}`);
     }
 
     const pageResults = resp.results || resp.synonym_sets || resp.curations || [];
@@ -81,22 +95,26 @@ async function fetchAllPagesSDK(fetchFn, initialParams = {}) {
   return allResults;
 }
 
-async function exportSynonyms(client, engineName) {
+async function exportSynonyms(client, engineName, quiet = false) {
   const fetchFn = (params) => client.app.listSynonymSets(Object.assign({ engine_name: engineName }, params));
-  return await fetchAllPagesSDK(fetchFn);
+  const synonyms = await fetchAllPagesSDK(fetchFn);
+  
+  log(`  Synonyms: ${synonyms.length} sets`, quiet);
+  return synonyms;
 }
 
-async function exportCurations(client, engineName) {
+async function exportCurations(client, engineName, quiet = false) {
   const fetchFn = (params) => client.app.listCurations(Object.assign({ engine_name: engineName }, params));
-  return await fetchAllPagesSDK(fetchFn);
+  const curations = await fetchAllPagesSDK(fetchFn);
+  
+  log(`  Curations: ${curations.length}`, quiet);
+  return curations;
 }
 
 /* -----------------------
-   REST helpers (for crawler endpoints not available in SDK)
-   Uses global fetch (Node v18+)
+   REST helpers for crawler
    ----------------------- */
 
-// CHANGED: REST pagination helper using query params page[current] & page[size]
 async function restFetchAllPages(urlBase, apiKey, pageSize = 100) {
   const all = [];
   let page = 1;
@@ -131,37 +149,42 @@ async function restFetchAllPages(urlBase, apiKey, pageSize = 100) {
   return all;
 }
 
-// CHANGED: smarter crawler export - prefer /domains nested data, fallback to separate endpoints
-async function exportCrawlerConfigViaRest(engineName, options) {
+async function exportCrawlerConfigViaRest(engineName, options, quiet = false) {
   const baseRoot = options.appSearchEndpoint.replace(/\/$/, '') +
     `/api/as/v1/engines/${encodeURIComponent(engineName)}/crawler`;
   const apiKey = options.appSearchPrivateKey;
 
-  // safe wrapper that returns [] on non-OK/404
+  // Safe wrapper that returns [] on non-OK/404
   async function safeRestFetchAll(url) {
     try {
       return await restFetchAllPages(url, apiKey);
     } catch (err) {
-      console.warn(`Could not fetch ${url}:`, err.message || err);
+      // Only log warnings in verbose mode
+      if (!quiet) {
+        console.warn(`Could not fetch ${url}:`, err.message || err);
+      }
       return [];
     }
   }
 
-  // 1) Try /domains first (may contain nested entry_points, crawl_rules, sitemaps)
+  // 1) Try /domains first (may contain nested data)
   const domainsUrl = `${baseRoot}/domains`;
   let domains = [];
   try {
     domains = await restFetchAllPages(domainsUrl, apiKey);
   } catch (err) {
-    console.warn('Could not fetch crawler domains via /domains:', err.message || err);
+    if (!quiet) {
+      console.warn('Could not fetch crawler domains:', err.message || err);
+    }
     domains = [];
   }
 
-  // Determine if domains already contain nested arrays we can use
+  // Check if domains contain nested arrays
   const hasNested = domains.length > 0 && domains.every(d =>
+    d &&
     (Array.isArray(d.entry_points) || Array.isArray(d.entryPoints)) &&
     (Array.isArray(d.crawl_rules) || Array.isArray(d.crawlRules)) &&
-    (Array.isArray(d.sitemaps) || Array.isArray(d.sitemaps))
+    Array.isArray(d.sitemaps)
   );
 
   if (hasNested) {
@@ -173,7 +196,7 @@ async function exportCrawlerConfigViaRest(engineName, options) {
       const normalized = Object.assign({}, d);
       normalized.entry_points = normalized.entry_points || normalized.entryPoints || [];
       normalized.crawl_rules = normalized.crawl_rules || normalized.crawlRules || [];
-      normalized.sitemaps = normalized.sitemaps || normalized.sitemaps || [];
+      normalized.sitemaps = normalized.sitemaps || d.sitemaps || [];
 
       normalized.entry_points.forEach(ep => entryPoints.push(Object.assign({ domain_id: normalized.id }, ep)));
       normalized.crawl_rules.forEach(cr => crawlRules.push(Object.assign({ domain_id: normalized.id }, cr)));
@@ -181,28 +204,25 @@ async function exportCrawlerConfigViaRest(engineName, options) {
 
       return normalized;
     });
-    console.log(normalizedDomains);
-    console.log("---------------");
-    console.log(entryPoints);
-    console.log("---------------");
-    console.log(crawlRules);
-    console.log("---------------");
-    console.log(sitemaps);
+    
+    log(`  Crawler: ${domains.length} domains, ${entryPoints.length} entry points, ${crawlRules.length} rules, ${sitemaps.length} sitemaps`, quiet);
+    
     return { domains: normalizedDomains, entryPoints, crawlRules, sitemaps };
   }
 
-  console.log()
-  // 2) Fallback: fetch entry_points, crawl_rules, sitemaps separately (paginated)
+  // 2) Fallback: fetch separately
   const [entryPoints, crawlRules, sitemaps] = await Promise.all([
     safeRestFetchAll(`${baseRoot}/entry_points`),
     safeRestFetchAll(`${baseRoot}/crawl_rules`),
     safeRestFetchAll(`${baseRoot}/sitemaps`)
   ]);
 
-  // If domains empty, try to populate them via safe fetch (some tenants need it)
+  // If domains empty, try to populate
   if (!domains || domains.length === 0) {
     domains = await safeRestFetchAll(domainsUrl);
   }
+
+  log(`  Crawler: ${domains.length} domains, ${entryPoints.length} entry points, ${crawlRules.length} rules, ${sitemaps.length} sitemaps`, quiet);
 
   return { domains, entryPoints, crawlRules, sitemaps };
 }
