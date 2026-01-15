@@ -33,36 +33,104 @@ Crawler APIs are accessed via REST because they are not fully supported in the E
 
 ---
 
+## Features
+
+- 🚀 **Two-Step Process** - Export all engines, then import all engines
+- ⚡ **Parallel Import** - Import multiple engines concurrently (configurable)
+- 🔄 **Sequential Export** - Reliable one-at-a-time export
+- 💪 **Force Overwrite** - Delete and recreate existing engines with `--force`
+- 🎯 **Filter Support** - Export only engines matching a pattern
+- 🔇 **Quiet Mode** - Clean logging for concurrent operations
+- 📊 **Progress Tracking** - Real-time statistics and ETA
+- 🛡️ **Reliable Deletion** - 30-second wait ensures names are fully released
+- 📦 **Complete Export** - Schema, synonyms, curations, search settings, and crawler configs
+- 🧹 **Cleanup Option** - Automatically delete JSON files after successful import
+
+
+---
+
 ## Bulk Migration 
 
-You can now:
+### Quick Start
 
-- List **all App Search engines**
-- Export **every engine automatically**
-- Import them into a **different cluster**
-- Apply **name prefixes** (e.g., `import-`)
-- Run in **dry-run mode**
-- Overwrite existing engines using `--force`
+### Step 1: Export All Engines from Source
+```bash
+node bulk-export.js \
+  --endpoint "https://source-cluster.elastic-cloud.com" \
+  --key "source-private-key" \
+  --output-dir "./my-engines"
+```
+
+### Step 2: Import All Engines to Target
+```bash
+# Dry run first (recommended)
+node bulk-import.js \
+  --endpoint "https://target-cluster.elastic-cloud.com" \
+  --key "target-private-key" \
+  --input-dir "./my-engines" \
+  --dry-run
+
+# Actual import
+node bulk-import.js \
+  --endpoint "https://target-cluster.elastic-cloud.com" \
+  --key "target-private-key" \
+  --input-dir "./my-engines" \
+  --concurrency 5 \
+  --force
+```
+
+Done! ✅
+
+---
+
+## Complete Workflow Example
+
+### Scenario: Migrate 535 engines from dev to prod
+```bash
+# Step 1: Export all engines from dev cluster
+node bulk-export.js \
+  --endpoint "https://dev-cluster.elastic-cloud.com" \
+  --key "dev-private-key" \
+  --output-dir "./dev-engines"
+
+# Output: 535 JSON files created in ./dev-engines/
+
+# Step 2: (Optional) Backup the JSON files
+cp -r ./dev-engines ./dev-engines-backup
+
+# Step 3: Dry run to verify what will be imported
+node bulk-import.js \
+  --endpoint "https://prod-cluster.elastic-cloud.com" \
+  --key "prod-private-key" \
+  --input-dir "./dev-engines" \
+  --prefix "prod-******" \
+  --dry-run
+
+# Step 4: Import to prod cluster (in tmux/screen for long-running task)
+
+node bulk-import.js \
+  --endpoint "https://prod-cluster.elastic-cloud.com" \
+  --key "prod-private-key" \
+  --input-dir "./dev-engines" \
+  --prefix "prod-*****" \
+  --concurrency 5 \
+  --force \
+  --cleanup
+  
+```
 
 ### Bulk Migration Options
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--from-endpoint` | Source cluster URL | Required |
-| `--from-key` | Source private API key | Required |
-| `--to-endpoint` | Target cluster URL | Required |
-| `--to-key` | Target private API key | Required |
-| `--concurrency <n>` | Number of engines to process in parallel | 5 |
-| `--output-dir <path>` | Directory for temporary JSON files | `./engines-export` |
-| `--target-prefix <prefix>` | Prefix to add to target engine names | (none) |
-| `--state-file <path>` | State file for resume capability | `./migration-state.json` |
-| `--force` | Overwrite existing engines on target | false |
-| `--resume` | Resume from previous run | false |
-| `--retry-failed-only` | Only retry previously failed engines | false |
-| `--skip-existing` | Skip engines that already exist on target | false |
-| `--cleanup` | Delete JSON files after successful import | false |
-| `--dry-run` | List engines without migrating | false |
-| `[filter]` | Substring filter for engine names | (none) |
+| `--endpoint <url>` | Target cluster URL | Required |
+| `--key <key>` | Target API private key | Required |
+| `--input-dir <path>` | Directory with JSON files | `./engines-export` |
+| `--concurrency <n>` | Engines to import in parallel | `5` |
+| `--prefix <prefix>` | Prefix to add to engine names | (none) |
+| `--force` | Delete existing engines before import | `false` |
+| `--cleanup` | Delete JSON files after successful import | `false` |
+| `--dry-run` | Preview without importing | `false` |
 
 This enables full environment-to-environment migrations such as:
 
@@ -95,96 +163,7 @@ npm install
 ```
 ---
 
-## Usage
 
-Export an App Search engine `parks` to a JSON file, `engine.json`.
-
-```sh
-npm run index.js export-app-search-engine parks -- \
-  --app-search-endpoint "https://my-cloud-deployment.ent.us-central1.gcp.cloud.es.io" \
-  --app-search-private-key "private-REDACTED" \
-  --output-json "engine.json"
-```
-
-Import an exported engine's settings from a file `engine.json` into a new engine, `new-parks`.
-
-```sh
-npm run index.js import-app-search-engine new-parks -- \
-  --app-search-endpoint "https://my-cloud-deployment.ent.us-central1.gcp.cloud.es.io" \
-  --app-search-private-key "private-REDACTED" \
-  --input-json "engine.json"
-  --force
-```
-
-### Bulk Migration
-
-Migrate multiple engines between clusters in parallel:
-
-#### Dry Run (Always Do This First!)
-```bash
-node bulk-migrate-engines.js \
-  --from-endpoint "https://source.elastic-cloud.com" \
-  --from-key "source-private-key" \
-  --to-endpoint "https://target.elastic-cloud.com" \
-  --to-key "target-private-key" \
-  --dry-run
-```
-
-#### Full Migration
-```bash
-node bulk-migrate-engines.js \
-  --from-endpoint "https://source.elastic-cloud.com" \
-  --from-key "source-private-key" \
-  --to-endpoint "https://target.elastic-cloud.com" \
-  --to-key "target-private-key" \
-  --concurrency 5 \
-  --force \
-  --cleanup
-```
-
-
-#### Resume After Interruption
-```bash
-node bulk-migrate-engines.js \
-  --from-endpoint "https://source.elastic-cloud.com" \
-  --from-key "source-private-key" \
-  --to-endpoint "https://target.elastic-cloud.com" \
-  --to-key "target-private-key" \
-  --concurrency 5 \
-  --force \
-  --resume
-```
-
-#### Retry Only Failed Engines
-```bash
-node bulk-migrate-engines.js \
-  --from-endpoint "https://source.elastic-cloud.com" \
-  --from-key "source-private-key" \
-  --to-endpoint "https://target.elastic-cloud.com" \
-  --to-key "target-private-key" \
-  --concurrency 2 \
-  --force \
-  --resume \
-  --retry-failed-only
-```
----
-
-## State File Format
-
-The migration state is saved to `migration-state.json`:
-```json
-{
-  "completed": ["engine-1", "engine-2", "engine-3"],
-  "failed": [
-    {
-      "engine": "engine-4",
-      "error": "Connection timeout"
-    }
-  ],
-  "skipped": [],
-  "startTime": 1702857600000
-}
-```
 
 ---
 ## Example exported engine settings JSON output
@@ -248,20 +227,25 @@ The migration state is saved to `migration-state.json`:
 ## Architecture
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    Bulk Migration Script                     │
-│  - Parallel processing (configurable concurrency)            │
-│  - State management and resume capability                    │
-│  - Progress tracking and statistics                          │
+│                  Export All Engines Script                   │
+│  - Lists all engines from source cluster                     │
+│  - Exports one at a time (sequential)                        │
+│  - Creates JSON file per engine                              │
 └───────────────────────┬─────────────────────────────────────┘
                         │
-        ┌───────────────┴───────────────┐
-        │                               │
-        ▼                               ▼
-┌───────────────┐               ┌───────────────┐
-│ Export Script │               │ Import Script │
-│ - Quiet mode  │               │ - Quiet mode  │
-│ - Pagination  │               │ - Retry logic │
-│ - REST API    │               │ - Force flag  │
-└───────────────┘               └───────────────┘
+                        ▼
+              ┌──────────────────┐
+              │   JSON Files     │
+              │   (Backup Safe)  │
+              └──────────┬───────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│                  Import All Engines Script                   │
+│  - Reads all JSON files from directory                       │
+│  - Imports with configurable concurrency (default: 5)        │
+│  - Progress tracking and statistics                          │
+│  - Optional cleanup after success                            │
+└─────────────────────────────────────────────────────────────┘
 ```
 
