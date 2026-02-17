@@ -117,7 +117,23 @@ node bulk-import.js \
   --force \
   --cleanup
   
+# Step 5: Export all engines from prod cluster
+
+node bulk-export.js \
+  --endpoint "https://prod-cluster.elastic-cloud.com" \
+  --key "prod-private-key" \
+  --output-dir "./prod-engines"
+
+
+# Step 6: Validation 
+
+node bulk-validate.js \
+  --source-dir ./dev-engines \
+  --target-dir ./prod-engines \
+  
 ```
+
+
 
 ### Bulk Migration Options
 
